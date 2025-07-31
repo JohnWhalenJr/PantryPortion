@@ -1,10 +1,15 @@
 import requests
 import logging
-import html2text
 import re
 
 # Setup logging
 logging.basicConfig(filename='pantry_portion.log', level=logging.DEBUG, format='%(asctime)s %(message)s')
+
+# Conditional import for html2text
+try:
+    import html2text
+except ImportError:
+    html2text = None
 
 # Spoonacular API key
 API_KEY = "ff4b682cd1954372be0dfd48319e37e0"
@@ -13,13 +18,13 @@ API_KEY = "ff4b682cd1954372be0dfd48319e37e0"
 def clean_instructions(instructions):
     if not instructions:
         return "No instructions available"
-    try:
+    if html2text:
         # Use html2text if available
         h = html2text.HTML2Text()
         h.body_only = True
         cleaned = h.handle(instructions)
         return cleaned.strip() or "No instructions available"
-    except ImportError:
+    else:
         # Fallback to regex if html2text is not installed
         cleaned = re.sub(r'<[^>]+>', '', instructions)  # Remove HTML tags
         cleaned = re.sub(r'\s+', ' ', cleaned).strip()  # Normalize whitespace
