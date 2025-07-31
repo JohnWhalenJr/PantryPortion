@@ -1,6 +1,6 @@
 import csv
 from models import UserProfile, Recipe, session
-from api import fetch_recipes, fetch_random_recipes, fetch_recipe_details
+from api import fetch_recipes, fetch_random_recipes, fetch_recipe_details, fetch_substitutes, fetch_similar_recipes
 from helpers import suggest_substitution, filter_by_restrictions
 import logging
 
@@ -13,6 +13,10 @@ def main():
     action = input("Login (l) or Create account (c)? ").lower()
     if action == 'c':
         name = input("Enter username: ")
+        existing_user = session.query(UserProfile).filter_by(name=name).first()
+        if existing_user:
+            print(f"Username '{name}' already exists. Please choose a different username or login.")
+            return
         password = input("Enter password: ")
         restrictions = input("Enter dietary restrictions (comma-separated, e.g., vegetarian,vegan,gluten-free, or leave blank): ") or None
         user = UserProfile(name=name, password=password, dietary_restrictions=restrictions)
@@ -22,7 +26,7 @@ def main():
             with open('users.csv', 'a', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow([name, password, restrictions or ''])
-            print("Account created!")
+            print(f"Account created! Dietary restrictions: {restrictions or 'None'}")
         except Exception as e:
             print(f"Error creating account: {e}")
             session.rollback()
@@ -32,7 +36,7 @@ def main():
         password = input("Enter password: ")
         user = session.query(UserProfile).filter_by(name=name, password=password).first()
         if user:
-            print("Login successful!")
+            print(f"Login successful! Dietary restrictions: {user.dietary_restrictions or 'None'}")
             restrictions = user.dietary_restrictions
         else:
             print("Invalid credentials.")
@@ -45,25 +49,15 @@ def main():
         ingredients = input("\nEnter ingredients (comma-separated, or leave blank for random recipes): ").split(",") if input else []
         ingredients = [i.strip() for i in ingredients if i.strip()]
         
-        # Fuzzy match ingredients
-        available_ingredients = [
-            "milk", "butter", "egg", "flour", "sugar", "ground turkey", "peanut oil",
-            "cooking oil", "mixed vegetables", "pork dumplings", "chicken", "beef", 
-            "white rice", "rice", "pasta", "spices", "oil", "soy sauce", "mozzarella",
-            "tomatoes", "garlic", "ginger", "olive oil", "canola oil", "vegetables"
-        ]
-        matched_ingredients = []
-        for ingredient in ingredients:
-            best_match = max(available_ingredients, key=lambda x: fuzz.ratio(ingredient.lower(), x))
-            score = fuzz.ratio(ingredient.lower(), best_match)
-            if score >= 60:
-                matched_ingredients.append(best_match)
+        # Use user input directly
+        matched_ingredients = ingredients
         logging.debug(f"Matched Ingredients: {matched_ingredients}")
         
         # Fetch recipes
         if matched_ingredients:
             recipes = fetch_recipes(matched_ingredients)
-            filtered_recipes = filter_by_restrictions(recipes, restrictions)
+            # Temporarily bypass filtering for debugging
+            filtered_recipes = recipes  # filter_by_restrictions(recipes, restrictions)
         else:
             filtered_recipes = fetch_random_recipes(restrictions)
         
@@ -115,8 +109,12 @@ def main():
                             print(f"- {ing['original']}")
                         print("\nInstructions:")
                         print(details.get('instructions', 'No instructions available'))
-                        if "white rice" in matched_ingredients or "rice" in matched_ingredients:
-                            print("**brown rice variation: Follow the instructions for the white rice version, substituting an equal amount of brown basmati rice for the white (I find you don't really need to rinse brown rice). Increase the water to 3c. and increase the cook time to 40-50 minutes.")
+                        # Display similar recipes as variations
+                        similar = fetch_similar_recipes(details['id'])
+                        if similar:
+                            print("\nVariations:")
+                            for s in similar[:3]:
+                                print(f"- {s['title']} (ready in {s['readyInMinutes']} min)")
                         print("\nNutritional Info:")
                         print(f"Calories: {nutrients.get('Calories', 0)}")
                         print(f"Protein: {nutrients.get('Protein', 0)}")
