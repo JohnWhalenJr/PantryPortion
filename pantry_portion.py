@@ -1,6 +1,5 @@
 import requests
 from fuzzywuzzy import fuzz
-import pandas as pd
 from sqlalchemy import create_engine, Column, Integer, String, Float, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 import csv
@@ -158,7 +157,7 @@ def main():
     # Fuzzy match ingredients
     available_ingredients = [
         "milk", "butter", "egg", "flour", "sugar", "ground turkey", "peanut oil",
-        "cooking oil", "mixed vegetables", "pork dumplings", "chicken", "beef",
+        "cooking oil", "mixed vegetables", "pork dumplings", "chicken", "beef", 
         "white rice", "rice", "pasta", "spices", "oil", "soy sauce"
     ]
     matched_ingredients = []
