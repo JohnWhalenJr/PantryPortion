@@ -3,16 +3,21 @@ from models import UserProfile, Recipe, session
 from api import fetch_recipes, fetch_random_recipes, fetch_recipe_details, fetch_substitutes, fetch_similar_recipes
 from helpers import suggest_substitution, filter_by_restrictions
 import logging
+from fuzzywuzzy import process
 
-# Setup logging
+# Set up logging to keep track of what’s happening in the app
 logging.basicConfig(filename='pantry_portion.log', level=logging.DEBUG, format='%(asctime)s %(message)s')
 
+# Main function that runs the whole PantryPortion app
 def main():
     print("\n=== Welcome to PantryPortion! ===")
     
+    # Ask the user if they want to log in or sign up
     action = input("Login (l) or Create account (c)? ").lower()
     if action == 'c':
+        # Create a new user account
         name = input("Enter username: ")
+        # Check if the username is already taken
         existing_user = session.query(UserProfile).filter_by(name=name).first()
         if existing_user:
             print(f"Username '{name}' already exists. Please choose a different username or login.")
@@ -22,6 +27,7 @@ def main():
         user = UserProfile(name=name, password=password, dietary_restrictions=restrictions)
         session.add(user)
         try:
+            # Save the user to the database and a CSV file
             session.commit()
             with open('users.csv', 'a', newline='') as f:
                 writer = csv.writer(f)
@@ -32,6 +38,7 @@ def main():
             session.rollback()
             return
     elif action == 'l':
+        # Log in an existing user
         name = input("Enter username: ")
         password = input("Enter password: ")
         user = session.query(UserProfile).filter_by(name=name, password=password).first()
@@ -46,22 +53,32 @@ def main():
         return
     
     while True:
+        # Ask for ingredients to find recipes
         ingredients = input("\nEnter ingredients (comma-separated, or leave blank for random recipes): ").split(",") if input else []
         ingredients = [i.strip() for i in ingredients if i.strip()]
         
-        # Use user input directly
-        matched_ingredients = ingredients
-        logging.debug(f"Matched Ingredients: {matched_ingredients}")
+        # Correct potential typos in ingredients using fuzzy matching
+        common_ingredients = ['broccoli', 'lentils', 'rice', 'beans', 'chicken', 'tomatoes', 'garlic', 'olive oil']
+        matched_ingredients = []
+        for ingredient in ingredients:
+            if ingredient:
+                match = process.extractOne(ingredient.lower(), common_ingredients, score_cutoff=80)
+                matched_ingredients.append(match[0] if match else ingredient.lower())
+        logging.debug(f"Original Ingredients: {ingredients}, Matched Ingredients: {matched_ingredients}")
         
-        # Fetch recipes
+        # Get recipes based on ingredients or restrictions
         if matched_ingredients:
-            recipes = fetch_recipes(matched_ingredients)
-            # Temporarily bypass filtering for debugging
-            filtered_recipes = recipes  # filter_by_restrictions(recipes, restrictions)
+            recipes = fetch_recipes(matched_ingredients, restrictions)
+            # Apply dietary restrictions to filter recipes
+            filtered_recipes = filter_by_restrictions(recipes, restrictions)
+            # If no recipes match the restrictions, fall back to unfiltered recipes
+            if not filtered_recipes and recipes:
+                print("No recipes match your dietary restrictions. Showing all available recipes instead.")
+                filtered_recipes = recipes
         else:
             filtered_recipes = fetch_random_recipes(restrictions)
         
-        # Display recipes
+        # Show the list of recipes we found
         print("\n=== Available Recipes ===")
         if filtered_recipes:
             for i, recipe in enumerate(filtered_recipes, 1):
@@ -70,7 +87,7 @@ def main():
             print("No recipes found. Try different ingredients or fewer restrictions.")
             if ingredients:
                 print("\n=== Ingredient Substitutions ===")
-                for ingredient in ingredients:
+                for ingredient in matched_ingredients:
                     subs = suggest_substitution(ingredient)
                     print(f"{ingredient}: {subs}")
             retry = input("\nTry different ingredients or restrictions? (y/n): ").lower()
@@ -78,7 +95,7 @@ def main():
                 return
             continue
         
-        # Allow user to select a recipe
+        # Let the user pick a recipe to see more details
         while True:
             try:
                 choice = input("\nEnter the number of the recipe to view details (or 'q' to quit): ")
@@ -89,8 +106,9 @@ def main():
                     selected_recipe = filtered_recipes[choice - 1]
                     details = fetch_recipe_details(selected_recipe['id'])
                     if details:
+                        # Pull out nutritional info from the API response
                         nutrients = {n['name']: n['amount'] for n in details.get('nutrition', {}).get('nutrients', [])}
-                        # Store in database
+                        # Save the recipe to the database
                         session.add(Recipe(
                             name=details['title'],
                             ingredients=",".join([i['name'] for i in details.get('extendedIngredients', [])]),
@@ -102,14 +120,14 @@ def main():
                         ))
                         session.commit()
                         
-                        # Display details
+                        # Show the recipe details to the user
                         print(f"\n=== Recipe: {details['title']} ===")
                         print("Ingredients:")
                         for ing in details.get('extendedIngredients', []):
                             print(f"- {ing['original']}")
                         print("\nInstructions:")
                         print(details.get('instructions', 'No instructions available'))
-                        # Display similar recipes as variations
+                        # Show similar recipes as possible variations
                         similar = fetch_similar_recipes(details['id'])
                         if similar:
                             print("\nVariations:")
@@ -122,7 +140,7 @@ def main():
                         print(f"Carbs: {nutrients.get('Carbohydrates', 0)}")
                         if ingredients:
                             print("\n=== Ingredient Substitutions ===")
-                            for ingredient in ingredients:
+                            for ingredient in matched_ingredients:
                                 subs = suggest_substitution(ingredient)
                                 print(f"{ingredient}: {subs}")
                     else:
