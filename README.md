@@ -1,6 +1,7 @@
 PantryPortion
 
 About the Project
+
 The user should be able to navigate the program to find a recipe that meets their current pantry holdings and whatevery restrictions or preferences that they may have.
 
 main.py
@@ -28,7 +29,7 @@ Functions for dietary filtering and ingredient substitution.
 
 How to use
 1) Make sure you have python 3 installed
-2) Install dependencies: 'pip install requests sqlalchemy html2text fuzzywuzzy python-Levenshtein'
+2) Install dependencies: 'pip install -r requirements.txt'
 3) Run the app from your terminal: 'python main.py'
 4) Login or Create an account: to create an account - enter in a name, followed by a password
 5) Enter in dietary restrictions e.g.  vegetarian, vegan, gluten-free, dairy-free
