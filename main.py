@@ -66,24 +66,31 @@ class RecipeApp:
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        # Restrictions
-        tk.Label(self.root, text="Dietary Restrictions:").grid(row=0, column=0, sticky="w")
+        # Dietary Restrictions in one row at the top with tighter spacing
+        tk.Label(self.root, text="Dietary Restrictions:").grid(row=0, column=0, sticky="w", padx=(0, 5))
+        
+        # Create a dedicated frame to hold the checkboxes
+        restrictions_frame = tk.Frame(self.root)
+        restrictions_frame.grid(row=0, column=1, columnspan=len(dietary_options), sticky="w")
+        
         self.restriction_vars = {}
+        checkbox_padding = 10  # consistent and adjustable
+        
         for i, option in enumerate(dietary_options):
             var = tk.BooleanVar()
-            cb = tk.Checkbutton(self.root, text=option, variable=var, command=self.update_restrictions_preview)
-            cb.grid(row=i + 1, column=0, sticky="w")
+            cb = tk.Checkbutton(restrictions_frame, text=option, variable=var, 
+                                command=self.update_restrictions_preview)
+            cb.pack(side=tk.LEFT, padx=(0, checkbox_padding))
             self.restriction_vars[option.lower().replace(" ", "-")] = var
-
-        self.restrictions_preview = tk.Label(self.root, text="Selected: None")
-        self.restrictions_preview.grid(row=len(dietary_options) + 1, column=0, sticky="w")
-
+        
+        # Reset button aligned after the checkboxes
         tk.Button(self.root, text="Reset Restrictions", command=self.reset_restrictions).grid(
-            row=len(dietary_options) + 2, column=0
+            row=0, column=len(dietary_options) + 2, padx=(10, 0), sticky="w"
         )
 
-        # Ingredient Dropdown
-        tk.Label(self.root, text="Select Ingredient:").grid(row=0, column=1, sticky="w")
+
+        # Select Ingredient on its own line
+        tk.Label(self.root, text="Select Ingredient:").grid(row=1, column=0, sticky="w")
         self.ingredient_var = tk.StringVar()
         self.ingredient_dropdown = ttk.Combobox(self.root, textvariable=self.ingredient_var, width=30)
         all_ingredients = []
@@ -92,33 +99,40 @@ class RecipeApp:
         self.ingredient_dropdown['values'] = sorted(set(all_ingredients))
         self.ingredient_dropdown.grid(row=1, column=1)
 
+        # Add Ingredient button stays to the right
         tk.Button(self.root, text="Add Ingredient", command=self.add_ingredient).grid(row=1, column=2)
 
         self.ingredient_preview = tk.Label(self.root, text="Selected: None")
-        self.ingredient_preview.grid(row=2, column=1, columnspan=2, sticky="w")
+        self.ingredient_preview.grid(row=2, column=0, columnspan=3, sticky="w")
 
-        tk.Button(self.root, text="Search Recipes", command=self.search_recipes).grid(row=3, column=1, pady=5)
+        # Search Recipes on its own line
+        tk.Button(self.root, text="Search Recipes", command=self.search_recipes).grid(row=3, column=0, columnspan=3, pady=5)
 
-        # Results box
-        self.result_listbox = tk.Listbox(self.root, width=60, height=10)
-        self.result_listbox.grid(row=4, column=0, columnspan=3, pady=10)
+        # Larger box and label above for "Recipes Found"
+        tk.Label(self.root, text="Recipes Found:", font=('Arial', 12, 'bold')).grid(row=4, column=0, columnspan=3, sticky="w")
+        self.result_listbox = tk.Listbox(self.root, width=80, height=15)
+        self.result_listbox.grid(row=5, column=0, columnspan=3, pady=5, sticky="nsew")
         self.result_listbox.bind("<<ListboxSelect>>", self.display_recipe_details)
 
-        self.detail_text = tk.Text(self.root, height=15, width=60, wrap="word")
-        self.detail_text.grid(row=5, column=0, columnspan=3)
+        self.detail_text = tk.Text(self.root, height=20, width=80, wrap="word")
+        self.detail_text.grid(row=6, column=0, columnspan=3, sticky="nsew")
+
+        # Configure grid weights to make the boxes expandable
+        self.root.grid_rowconfigure(5, weight=1)
+        self.root.grid_rowconfigure(6, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_columnconfigure(1, weight=1)
+        self.root.grid_columnconfigure(2, weight=1)
 
     def update_restrictions_preview(self):
         selected = [key for key, var in self.restriction_vars.items() if var.get()]
         self.restrictions = set(selected)
-        self.restrictions_preview.config(
-            text=f"Selected: {', '.join(selected).title() if selected else 'None'}"
-        )
+        # Removed the preview label since we're showing checkboxes directly
 
     def reset_restrictions(self):
         for var in self.restriction_vars.values():
             var.set(False)
         self.restrictions.clear()
-        self.restrictions_preview.config(text="Selected: None")
 
     def add_ingredient(self):
         ingredient = self.ingredient_var.get().strip().lower()
@@ -130,7 +144,7 @@ class RecipeApp:
     def search_recipes(self):
         self.result_listbox.delete(0, tk.END)
         self.detail_text.delete("1.0", tk.END)
-        print("Searching with:", self.ingredient_list, "Restrictions:", self.restrictions) # Test if restrictions are still applied
+        print("Searching with:", self.ingredient_list, "Restrictions:", self.restrictions)
         recipes, message = get_filtered_recipes(self.ingredient_list, list(self.restrictions))
         print(f"Fetched {len(recipes)} recipes, message: '{message}'")
 
