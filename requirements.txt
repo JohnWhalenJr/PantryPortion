@@ -1,0 +1,5 @@
+requests 
+sqlalchemy 
+html2text 
+fuzzywuzzy 
+python-Levenshtein
