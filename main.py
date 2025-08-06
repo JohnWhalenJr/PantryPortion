@@ -1,137 +1,170 @@
-import csv
-from models import UserProfile, Recipe, session
-from api import fetch_recipes, fetch_random_recipes, fetch_recipe_details, fetch_substitutes, fetch_similar_recipes
-from helpers import suggest_substitution, filter_by_restrictions
-import logging
+import tkinter as tk
+from tkinter import ttk, messagebox
+from main_refactored import create_account, login, get_filtered_recipes, get_recipe_details_by_id
 
-# Setup logging
-logging.basicConfig(filename='pantry_portion.log', level=logging.DEBUG, format='%(asctime)s %(message)s')
+# -------------------- Dietary Options & Ingredient Categories --------------------
 
-def main():
-    print("\n=== Welcome to PantryPortion! ===")
-    
-    action = input("Login (l) or Create account (c)? ").lower()
-    if action == 'c':
-        name = input("Enter username: ")
-        existing_user = session.query(UserProfile).filter_by(name=name).first()
-        if existing_user:
-            print(f"Username '{name}' already exists. Please choose a different username or login.")
-            return
-        password = input("Enter password: ")
-        restrictions = input("Enter dietary restrictions (comma-separated, e.g., vegetarian,vegan,gluten-free, or leave blank): ") or None
-        user = UserProfile(name=name, password=password, dietary_restrictions=restrictions)
-        session.add(user)
-        try:
-            session.commit()
-            with open('users.csv', 'a', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow([name, password, restrictions or ''])
-            print(f"Account created! Dietary restrictions: {restrictions or 'None'}")
-        except Exception as e:
-            print(f"Error creating account: {e}")
-            session.rollback()
-            return
-    elif action == 'l':
-        name = input("Enter username: ")
-        password = input("Enter password: ")
-        user = session.query(UserProfile).filter_by(name=name, password=password).first()
-        if user:
-            print(f"Login successful! Dietary restrictions: {user.dietary_restrictions or 'None'}")
-            restrictions = user.dietary_restrictions
+dietary_options = ["Gluten Free", "Keto", "Vegetarian", "Vegan", "Pescetarian", "Paleo"]
+
+ingredient_categories = {
+    "Aromatics": ["onions", "garlic", "carrots", "celery", "jalapeños"],
+    "Herbs": ["cilantro", "parsley", "dill"],
+    "Other Vegetables": ["potatoes", "bell pepper", "greens", "tomatoes"],
+    "Acidity": ["lemon", "lime", "vinegar"],
+    "Protein": ["chicken", "beef", "turkey", "fish", "eggs"],
+    "Dairy": ["milk", "butter", "cheddar cheese", "yogurt", "parmesan"],
+    "Pantry Staples": ["black beans", "garbanzo beans", "rice", "pasta"]
+}
+
+# -------------------- App Class --------------------
+
+class RecipeApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("PantryPortion")
+        self.user = None
+        self.restrictions = set()
+        self.ingredient_list = []
+
+        self.create_login_ui()
+
+    def create_login_ui(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        tk.Label(self.root, text="Username:").grid(row=0, column=0, sticky="w")
+        self.username_entry = tk.Entry(self.root)
+        self.username_entry.grid(row=0, column=1)
+
+        tk.Label(self.root, text="Password:").grid(row=1, column=0, sticky="w")
+        self.password_entry = tk.Entry(self.root, show="*")
+        self.password_entry.grid(row=1, column=1)
+
+        tk.Button(self.root, text="Login", command=self.handle_login).grid(row=2, column=0)
+        tk.Button(self.root, text="Create Account", command=self.handle_create).grid(row=2, column=1)
+
+    def handle_login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        success, result = login(username, password)
+        if success:
+            self.user = result
+            self.create_search_ui()
         else:
-            print("Invalid credentials.")
+            messagebox.showerror("Login Failed", result)
+
+    def handle_create(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        success, result = create_account(username, password)
+        if success:
+            messagebox.showinfo("Account Created", "Account successfully created! Please log in.")
+        else:
+            messagebox.showerror("Error", result)
+
+    def create_search_ui(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        # Restrictions
+        tk.Label(self.root, text="Dietary Restrictions:").grid(row=0, column=0, sticky="w")
+        self.restriction_vars = {}
+        for i, option in enumerate(dietary_options):
+            var = tk.BooleanVar()
+            cb = tk.Checkbutton(self.root, text=option, variable=var, command=self.update_restrictions_preview)
+            cb.grid(row=i + 1, column=0, sticky="w")
+            self.restriction_vars[option.lower().replace(" ", "-")] = var
+
+        self.restrictions_preview = tk.Label(self.root, text="Selected: None")
+        self.restrictions_preview.grid(row=len(dietary_options) + 1, column=0, sticky="w")
+
+        tk.Button(self.root, text="Reset Restrictions", command=self.reset_restrictions).grid(
+            row=len(dietary_options) + 2, column=0
+        )
+
+        # Ingredient Dropdown
+        tk.Label(self.root, text="Select Ingredient:").grid(row=0, column=1, sticky="w")
+        self.ingredient_var = tk.StringVar()
+        self.ingredient_dropdown = ttk.Combobox(self.root, textvariable=self.ingredient_var, width=30)
+        all_ingredients = []
+        for group in ingredient_categories.values():
+            all_ingredients.extend(group)
+        self.ingredient_dropdown['values'] = sorted(set(all_ingredients))
+        self.ingredient_dropdown.grid(row=1, column=1)
+
+        tk.Button(self.root, text="Add Ingredient", command=self.add_ingredient).grid(row=1, column=2)
+
+        self.ingredient_preview = tk.Label(self.root, text="Selected: None")
+        self.ingredient_preview.grid(row=2, column=1, columnspan=2, sticky="w")
+
+        tk.Button(self.root, text="Search Recipes", command=self.search_recipes).grid(row=3, column=1, pady=5)
+
+        # Results box
+        self.result_listbox = tk.Listbox(self.root, width=60, height=10)
+        self.result_listbox.grid(row=4, column=0, columnspan=3, pady=10)
+        self.result_listbox.bind("<<ListboxSelect>>", self.display_recipe_details)
+
+        self.detail_text = tk.Text(self.root, height=15, width=60, wrap="word")
+        self.detail_text.grid(row=5, column=0, columnspan=3)
+
+    def update_restrictions_preview(self):
+        selected = [key for key, var in self.restriction_vars.items() if var.get()]
+        self.restrictions = set(selected)
+        self.restrictions_preview.config(
+            text=f"Selected: {', '.join(selected).title() if selected else 'None'}"
+        )
+
+    def reset_restrictions(self):
+        for var in self.restriction_vars.values():
+            var.set(False)
+        self.restrictions.clear()
+        self.restrictions_preview.config(text="Selected: None")
+
+    def add_ingredient(self):
+        ingredient = self.ingredient_var.get().strip().lower()
+        if ingredient and ingredient not in self.ingredient_list:
+            self.ingredient_list.append(ingredient)
+            self.ingredient_preview.config(text=f"Selected: {', '.join(self.ingredient_list)}")
+        self.ingredient_var.set("")
+
+    def search_recipes(self):
+        self.result_listbox.delete(0, tk.END)
+        self.detail_text.delete("1.0", tk.END)
+        print("Searching with:", self.ingredient_list, "Restrictions:", self.restrictions) # Test if restrictions are still applied
+        recipes, message = get_filtered_recipes(self.ingredient_list, list(self.restrictions))
+        print(f"Fetched {len(recipes)} recipes, message: '{message}'")
+
+        if message:
+            messagebox.showinfo("Note", message)
+        self.recipe_data = {r['title']: r['id'] for r in recipes}
+        for title in self.recipe_data.keys():
+            self.result_listbox.insert(tk.END, title)
+
+    def display_recipe_details(self, event):
+        selection = self.result_listbox.curselection()
+        if not selection:
             return
-    else:
-        print("Invalid choice.")
-        return
-    
-    while True:
-        ingredients = input("\nEnter ingredients (comma-separated, or leave blank for random recipes): ").split(",") if input else []
-        ingredients = [i.strip() for i in ingredients if i.strip()]
-        
-        # Use user input directly
-        matched_ingredients = ingredients
-        logging.debug(f"Matched Ingredients: {matched_ingredients}")
-        
-        # Fetch recipes
-        if matched_ingredients:
-            recipes = fetch_recipes(matched_ingredients)
-            # Temporarily bypass filtering for debugging
-            filtered_recipes = recipes  # filter_by_restrictions(recipes, restrictions)
-        else:
-            filtered_recipes = fetch_random_recipes(restrictions)
-        
-        # Display recipes
-        print("\n=== Available Recipes ===")
-        if filtered_recipes:
-            for i, recipe in enumerate(filtered_recipes, 1):
-                print(f"{i} {recipe['title']}")
-        else:
-            print("No recipes found. Try different ingredients or fewer restrictions.")
-            if ingredients:
-                print("\n=== Ingredient Substitutions ===")
-                for ingredient in ingredients:
-                    subs = suggest_substitution(ingredient)
-                    print(f"{ingredient}: {subs}")
-            retry = input("\nTry different ingredients or restrictions? (y/n): ").lower()
-            if retry != 'y':
-                return
-            continue
-        
-        # Allow user to select a recipe
-        while True:
-            try:
-                choice = input("\nEnter the number of the recipe to view details (or 'q' to quit): ")
-                if choice.lower() == 'q':
-                    return
-                choice = int(choice)
-                if 1 <= choice <= len(filtered_recipes):
-                    selected_recipe = filtered_recipes[choice - 1]
-                    details = fetch_recipe_details(selected_recipe['id'])
-                    if details:
-                        nutrients = {n['name']: n['amount'] for n in details.get('nutrition', {}).get('nutrients', [])}
-                        # Store in database
-                        session.add(Recipe(
-                            name=details['title'],
-                            ingredients=",".join([i['name'] for i in details.get('extendedIngredients', [])]),
-                            instructions=details.get('instructions', 'No instructions available'),
-                            calories=nutrients.get('Calories', 0),
-                            protein=nutrients.get('Protein', 0),
-                            fat=nutrients.get('Fat', 0),
-                            carbs=nutrients.get('Carbohydrates', 0)
-                        ))
-                        session.commit()
-                        
-                        # Display details
-                        print(f"\n=== Recipe: {details['title']} ===")
-                        print("Ingredients:")
-                        for ing in details.get('extendedIngredients', []):
-                            print(f"- {ing['original']}")
-                        print("\nInstructions:")
-                        print(details.get('instructions', 'No instructions available'))
-                        # Display similar recipes as variations
-                        similar = fetch_similar_recipes(details['id'])
-                        if similar:
-                            print("\nVariations:")
-                            for s in similar[:3]:
-                                print(f"- {s['title']} (ready in {s['readyInMinutes']} min)")
-                        print("\nNutritional Info:")
-                        print(f"Calories: {nutrients.get('Calories', 0)}")
-                        print(f"Protein: {nutrients.get('Protein', 0)}")
-                        print(f"Fat: {nutrients.get('Fat', 0)}")
-                        print(f"Carbs: {nutrients.get('Carbohydrates', 0)}")
-                        if ingredients:
-                            print("\n=== Ingredient Substitutions ===")
-                            for ingredient in ingredients:
-                                subs = suggest_substitution(ingredient)
-                                print(f"{ingredient}: {subs}")
-                    else:
-                        print("Failed to fetch recipe details.")
-                else:
-                    print(f"Please enter a number between 1 and {len(filtered_recipes)}.")
-            except ValueError:
-                print("Invalid input. Enter a number or 'q' to quit.")
-            break
+        title = self.result_listbox.get(selection[0])
+        recipe_id = self.recipe_data[title]
+        details = get_recipe_details_by_id(recipe_id)
+        if not details:
+            self.detail_text.insert(tk.END, "Unable to load recipe details.")
+            return
+        instructions = details.get('instructions', 'No instructions provided.')
+        ingredients = [i['original'] for i in details.get('extendedIngredients', [])]
+        nutrients = details.get('nutrition', {}).get('nutrients', [])
+
+        self.detail_text.delete("1.0", tk.END)
+        self.detail_text.insert(tk.END, f"Title: {title}\n\n")
+        self.detail_text.insert(tk.END, f"Ingredients:\n" + "\n".join(ingredients) + "\n\n")
+        self.detail_text.insert(tk.END, f"Instructions:\n{instructions}\n\n")
+        self.detail_text.insert(tk.END, f"Nutrients:\n")
+        for nutrient in nutrients:
+            self.detail_text.insert(tk.END, f"  {nutrient['name']}: {nutrient['amount']} {nutrient['unit']}\n")
+
+# -------------------- Main Execution --------------------
 
 if __name__ == "__main__":
-    main()
+    root = tk.Tk()
+    app = RecipeApp(root)
+    root.mainloop()
